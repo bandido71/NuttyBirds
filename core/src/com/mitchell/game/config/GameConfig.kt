@@ -14,5 +14,6 @@ class GameConfig {
         const val MAX_DISTANCE = 100f
         const val UPPER_ANGLE = 3 * MathUtils.PI / 2f
         const val LOWER_ANGLE = MathUtils.PI / 2f
+        const val ACORN_COUNT = 3
     }
 }

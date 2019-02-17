@@ -13,9 +13,12 @@ import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector2
 import com.badlogic.gdx.physics.box2d.*
 import com.badlogic.gdx.utils.ObjectMap
+import com.badlogic.gdx.utils.OrderedMap
 import com.badlogic.gdx.utils.viewport.FitViewport
 import com.mitchell.game.NuttyGame
 import com.mitchell.game.config.GameConfig
+import com.mitchell.game.entity.Acorn
+import com.mitchell.game.entity.AcornPool
 import com.mitchell.game.entity.SpriteGenerator
 import com.mitchell.game.entity.TiledObjectBodyBuilder
 import ktx.app.KtxScreen
@@ -52,6 +55,8 @@ class GameScreen(game: NuttyGame) : KtxScreen {
     private val slingshot: Sprite
     private val squirrel: Sprite
     private val staticAcorn: Sprite
+    private val acornPool = AcornPool(game)
+    private val acorns = OrderedMap<Body, Acorn>()
 
     init {
         viewport.apply(true)
@@ -69,7 +74,7 @@ class GameScreen(game: NuttyGame) : KtxScreen {
             }
 
             override fun touchUp(screenX: Int, screenY: Int, pointer: Int, button: Int): Boolean {
-                createBullet()
+                createAcorn()
                 firingPosition.set(anchor.cpy())
                 return true
             }
@@ -102,6 +107,7 @@ class GameScreen(game: NuttyGame) : KtxScreen {
     override fun dispose() {
         batch.dispose()
         shapeRenderer.dispose()
+        orthogonalTiledMapRenderer.dispose()
     }
 
     private fun draw() {
@@ -110,6 +116,10 @@ class GameScreen(game: NuttyGame) : KtxScreen {
         orthogonalTiledMapRenderer.render()
         batch.use {
             sprites.values().forEach {
+                it.draw(batch)
+            }
+
+            acorns.values().forEach {
                 it.draw(batch)
             }
 
@@ -125,6 +135,7 @@ class GameScreen(game: NuttyGame) : KtxScreen {
         box2dCam.position.set(GameConfig.UNIT_WIDTH / 2f, GameConfig.UNIT_HEIGHT / 2f, 0f)
         box2dCam.update()
         updateSpritePositions()
+        updateAcornPositions()
     }
 
     private fun updateSpritePositions() {
@@ -143,6 +154,48 @@ class GameScreen(game: NuttyGame) : KtxScreen {
         )
     }
 
+    private fun updateAcornPositions() {
+        acorns.keys().forEach {
+            val acorn = acorns[it]
+            acorn.setPosition(
+                    convertMetresToUnits(it.position.x) - acorn.width / 2f,
+                    convertMetresToUnits(it.position.y) - acorn.height / 2f
+            )
+            acorn.setRotation(MathUtils.radiansToDegrees * it.angle)
+        }
+    }
+
+    private fun checkLimitAndRemoveAcornIfNecessary() {
+        if(acorns.size == GameConfig.ACORN_COUNT) {
+            val body = acorns.keys().iterator().next()
+            toRemove.add(body)
+            val acorn = acorns.remove(body)
+            acornPool.free(acorn)
+        }
+    }
+
+    private fun createAcorn() {
+        val circleShape = CircleShape()
+        circleShape.radius = 0.5f
+        val bd = BodyDef()
+        bd.type = BodyDef.BodyType.DynamicBody
+        val acorn = world.createBody(bd)
+        acorn.userData = "acorn"
+        acorn.createFixture(circleShape, 1f)
+        acorn.setTransform(
+                Vector2(convertUnitsToMetres(firingPosition.x), convertUnitsToMetres(firingPosition.y)),
+                0f
+        )
+
+        checkLimitAndRemoveAcornIfNecessary()
+        acorns.put(acorn, acornPool.obtain())
+
+        circleShape.dispose()
+        val velX = abs((GameConfig.MAX_STRENGTH * -cos(angle) * (distance / 100f)))
+        val velY = abs((GameConfig.MAX_STRENGTH * -sin(angle) * (distance / 100f)))
+        acorn.setLinearVelocity(velX, velY)
+    }
+
     private fun drawDebug() {
         viewport.apply()
         debugRenderer.render(world, box2dCam.combined)
@@ -152,29 +205,6 @@ class GameScreen(game: NuttyGame) : KtxScreen {
         shapeRenderer.rect(firingPosition.x - 5f, firingPosition.y - 5f, 10f, 10f)
         shapeRenderer.line(anchor.x, anchor.y, firingPosition.x, firingPosition.y)
         shapeRenderer.end()
-    }
-
-    private fun createBullet() {
-        val circleShape = CircleShape()
-        circleShape.radius = 0.5f
-        val bd = BodyDef()
-        bd.type = BodyDef.BodyType.DynamicBody
-        val bullet = world.createBody(bd)
-        bullet.userData = "acorn"
-        bullet.createFixture(circleShape, 1f)
-        bullet.setTransform(
-                Vector2(convertUnitsToMetres(firingPosition.x), convertUnitsToMetres(firingPosition.y)),
-                0f
-        )
-
-        val sprite = Sprite(assetManager.get<Texture>("acorn.png"))
-        sprite.setOrigin(sprite.width / 2f, sprite.height / 2f)
-        sprites.put(bullet, sprite)
-
-        circleShape.dispose()
-        val velX = abs((GameConfig.MAX_STRENGTH * -cos(angle) * (distance / 100f)))
-        val velY = abs((GameConfig.MAX_STRENGTH * -sin(angle) * (distance / 100f)))
-        bullet.setLinearVelocity(velX, velY)
     }
 
     private fun clearDeadBodies() {
